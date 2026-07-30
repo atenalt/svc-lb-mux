@@ -546,7 +546,10 @@ def ensure_channel_endpoints_cached(
         )
         return False
 
-    memo.endpoints[key] = channel_endpoints._raw
+    endpoint_raw = getattr(channel_endpoints, "raw", None)
+    if endpoint_raw is None:
+        endpoint_raw = channel_endpoints.to_dict()
+    memo.endpoints[key] = endpoint_raw
     logging.info(
         "Recovered missing channel Endpoints cache entry for %s/%s",
         channel_service.namespace,

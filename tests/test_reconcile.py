@@ -524,9 +524,11 @@ class ReconcileHelperTest(unittest.TestCase):
 
     def test_missing_channel_endpoints_are_fetched_and_cached(self):
         class Memo:
-            endpoints = {}
+            def __init__(self):
+                self.endpoints = {}
 
         service = FakeService(channel_service())
+        memo = Memo()
         endpoint_raw = {
             "metadata": {"namespace": "app", "name": "api"},
             "subsets": [{"addresses": [{"ip": "10.0.0.1"}]}],
@@ -534,15 +536,33 @@ class ReconcileHelperTest(unittest.TestCase):
         endpoint_factory = FakeEndpointsFactory(endpoint_raw)
 
         self.assertTrue(
-            ensure_channel_endpoints_cached(service, Memo(), endpoint_factory)
+            ensure_channel_endpoints_cached(service, memo, endpoint_factory)
         )
-        self.assertEqual(Memo.endpoints[("app", "api")], endpoint_raw)
+        self.assertEqual(memo.endpoints[("app", "api")], endpoint_raw)
         self.assertEqual(endpoint_factory.refresh_count, 1)
 
         self.assertTrue(
-            ensure_channel_endpoints_cached(service, Memo(), endpoint_factory)
+            ensure_channel_endpoints_cached(service, memo, endpoint_factory)
         )
         self.assertEqual(endpoint_factory.refresh_count, 1)
+
+    def test_missing_channel_endpoints_fall_back_to_public_to_dict(self):
+        class Memo:
+            def __init__(self):
+                self.endpoints = {}
+
+        service = FakeService(channel_service())
+        memo = Memo()
+        endpoint_raw = {
+            "metadata": {"namespace": "app", "name": "api"},
+            "subsets": [],
+        }
+        endpoint_factory = FakeEndpointsFactory(endpoint_raw, expose_raw=False)
+
+        self.assertTrue(
+            ensure_channel_endpoints_cached(service, memo, endpoint_factory)
+        )
+        self.assertEqual(memo.endpoints[("app", "api")], endpoint_raw)
 
     def test_channel_refs_are_stable_sorted_namespaced_names(self):
         channels = [
@@ -623,17 +643,27 @@ class FakeService:
 
 
 class FakeEndpointsFactory:
-    def __init__(self, endpoint_raw):
+    def __init__(self, endpoint_raw, expose_raw=True):
         self.endpoint_raw = endpoint_raw
+        self.expose_raw = expose_raw
         self.refresh_count = 0
 
     def __call__(self, _body):
         factory = self
 
-        class FakeEndpoints:
+        class FakeEndpointsBase:
             def refresh(self):
                 factory.refresh_count += 1
-                self._raw = factory.endpoint_raw
+
+        if self.expose_raw:
+            class FakeEndpoints(FakeEndpointsBase):
+                @property
+                def raw(self):
+                    return factory.endpoint_raw
+        else:
+            class FakeEndpoints(FakeEndpointsBase):
+                def to_dict(self):
+                    return factory.endpoint_raw
 
         return FakeEndpoints()
 
