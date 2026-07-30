@@ -41,6 +41,7 @@ from reconcile import (
     collect_existing_port_owners,
     collect_static_port_claims,
     count_ready_channel_pods,
+    ensure_channel_endpoints_cached,
     external_dns_aggregation_conflicts,
     get_current_endpoints_set,
     get_old_endpoints_set,
@@ -534,6 +535,7 @@ def mux_daemon(
                 ch, channel_service, ch_ports_anno, status_lb
             )
 
+            ensure_channel_endpoints_cached(channel_service, memo)
             ch_endpoints = collect_channel_endpoints(ch, channel_service, memo)
             endpoints.extend(ch_endpoints)
 

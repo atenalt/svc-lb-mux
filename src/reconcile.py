@@ -3,7 +3,8 @@
 import logging
 from hashlib import sha256
 
-from kr8s.objects import Service
+from kr8s import NotFoundError
+from kr8s.objects import Endpoints, Service
 
 from annotations import format_channel_port_annotation, parse_port_mappings
 from utils import parse_external_dns
@@ -515,6 +516,43 @@ def collect_channel_endpoints(channel, channel_service, memo):
             endpoints.append(mux_subset)
 
     return endpoints
+
+
+def ensure_channel_endpoints_cached(
+    channel_service,
+    memo,
+    endpoints_factory=Endpoints,
+):
+    """Fetch a channel's Endpoints when a watch/index ordering race missed it."""
+    key = (channel_service.namespace, channel_service.name)
+    if key in memo.endpoints:
+        return True
+
+    channel_endpoints = endpoints_factory(
+        {
+            "metadata": {
+                "namespace": channel_service.namespace,
+                "name": channel_service.name,
+            }
+        }
+    )
+    try:
+        channel_endpoints.refresh()
+    except NotFoundError:
+        logging.debug(
+            "Channel Endpoints %s/%s do not exist yet",
+            channel_service.namespace,
+            channel_service.name,
+        )
+        return False
+
+    memo.endpoints[key] = channel_endpoints._raw
+    logging.info(
+        "Recovered missing channel Endpoints cache entry for %s/%s",
+        channel_service.namespace,
+        channel_service.name,
+    )
+    return True
 
 
 def channel_refs(channels):

@@ -16,6 +16,7 @@ from reconcile import (
     collect_existing_port_owners,
     collect_static_port_claims,
     count_ready_channel_pods,
+    ensure_channel_endpoints_cached,
     external_dns_aggregation_conflicts,
     effective_mux_max_ports,
     find_mux_port_conflicts,
@@ -521,6 +522,28 @@ class ReconcileHelperTest(unittest.TestCase):
         self.assertEqual(not_ready, {MuxEp("10.0.0.2", 30080, "TCP")})
         self.assertEqual(get_current_endpoints_set(endpoint), (ready, not_ready))
 
+    def test_missing_channel_endpoints_are_fetched_and_cached(self):
+        class Memo:
+            endpoints = {}
+
+        service = FakeService(channel_service())
+        endpoint_raw = {
+            "metadata": {"namespace": "app", "name": "api"},
+            "subsets": [{"addresses": [{"ip": "10.0.0.1"}]}],
+        }
+        endpoint_factory = FakeEndpointsFactory(endpoint_raw)
+
+        self.assertTrue(
+            ensure_channel_endpoints_cached(service, Memo(), endpoint_factory)
+        )
+        self.assertEqual(Memo.endpoints[("app", "api")], endpoint_raw)
+        self.assertEqual(endpoint_factory.refresh_count, 1)
+
+        self.assertTrue(
+            ensure_channel_endpoints_cached(service, Memo(), endpoint_factory)
+        )
+        self.assertEqual(endpoint_factory.refresh_count, 1)
+
     def test_channel_refs_are_stable_sorted_namespaced_names(self):
         channels = [
             channel_service(name="b"),
@@ -597,6 +620,22 @@ class FakeService:
     def __init__(self, body):
         self.namespace = body["metadata"]["namespace"]
         self.name = body["metadata"]["name"]
+
+
+class FakeEndpointsFactory:
+    def __init__(self, endpoint_raw):
+        self.endpoint_raw = endpoint_raw
+        self.refresh_count = 0
+
+    def __call__(self, _body):
+        factory = self
+
+        class FakeEndpoints:
+            def refresh(self):
+                factory.refresh_count += 1
+                self._raw = factory.endpoint_raw
+
+        return FakeEndpoints()
 
 
 class FakeAllocator:
